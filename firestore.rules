@@ -1,0 +1,108 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions for secure multi-tenancy & RBAC
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function belongsToOrg(orgId) {
+      return isAuthenticated() && getUserData().organizationId == orgId;
+    }
+
+    function isOrgAdmin(orgId) {
+      return belongsToOrg(orgId) && (
+        getUserData().roleType == 'OWNER' ||
+        getUserData().roleType == 'SUPER_ADMIN' ||
+        getUserData().roleType == 'HR_ADMIN' ||
+        getUserData().isOwner == true
+      );
+    }
+
+    function isManager(orgId) {
+      return belongsToOrg(orgId) && (getUserData().roleType == 'DEPT_MANAGER' || isOrgAdmin(orgId));
+    }
+
+    // Top-Level User Profile Collection
+    match /users/{userId} {
+      // User can read and write only their own profile document; Admin can read all users in their org
+      allow read: if isAuthenticated() && (request.auth.uid == userId || isOrgAdmin(resource.data.organizationId));
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      // Prevent user from elevating their own roleType to OWNER/ADMIN or changing organizationId
+      allow update: if isAuthenticated() && (
+        isOrgAdmin(resource.data.organizationId) ||
+        (request.auth.uid == userId && 
+         request.resource.data.roleType == resource.data.roleType && 
+         request.resource.data.organizationId == resource.data.organizationId &&
+         request.resource.data.isOwner == resource.data.isOwner)
+      );
+      allow delete: if isAuthenticated() && isOrgAdmin(resource.data.organizationId);
+    }
+
+    // Tenant Root & Subcollections
+    match /organizations/{orgId} {
+      allow read: if belongsToOrg(orgId);
+      allow create: if isAuthenticated(); // New company creation during signup
+      allow update, delete: if isOrgAdmin(orgId);
+
+      // Employees Collection
+      match /employees/{employeeId} {
+        allow read: if belongsToOrg(orgId);
+        allow create, update, delete: if isOrgAdmin(orgId);
+      }
+
+      // Attendance Records
+      match /attendance/{attendanceId} {
+        allow read: if belongsToOrg(orgId);
+        allow create: if belongsToOrg(orgId);
+        allow update: if isManager(orgId);
+      }
+
+      // Leave Requests
+      match /leaveRequests/{leaveId} {
+        allow read: if belongsToOrg(orgId);
+        allow create: if belongsToOrg(orgId);
+        allow update: if isManager(orgId);
+      }
+
+      // Payroll Records (High Security - Philippines Statutory & Net Pay)
+      match /payroll/{payrollId} {
+        allow read, write: if isOrgAdmin(orgId);
+      }
+
+      // Payslips (Confidential - Employee can read own, Admin can read/write all)
+      match /payslips/{payslipId} {
+        allow read: if belongsToOrg(orgId) && (resource.data.employeeId == getUserData().employeeId || isOrgAdmin(orgId));
+        allow write: if isOrgAdmin(orgId);
+      }
+
+      // Workflows & Tasks
+      match /workflows/{workflowId} {
+        allow read: if belongsToOrg(orgId);
+        allow write: if isOrgAdmin(orgId);
+      }
+
+      match /tasks/{taskId} {
+        allow read, update: if belongsToOrg(orgId);
+        allow create, delete: if isManager(orgId);
+      }
+    }
+
+    // Top-level Audit Log (Immutable: Append-only by privileged functions/users)
+    match /auditLogs/{logId} {
+      allow read: if isAuthenticated() && getUserData().organizationId == resource.data.organizationId && isOrgAdmin(resource.data.organizationId);
+      allow create: if isAuthenticated() && getUserData().organizationId == request.resource.data.organizationId;
+      allow update, delete: if false; // NEVER allow updates or deletions to audit trail
+    }
+
+    // Deny all by default
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
