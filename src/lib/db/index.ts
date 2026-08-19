@@ -23,6 +23,13 @@ import {
   NotificationIncident,
   AuditEvent,
   ID,
+  AppModule,
+  SystemRoleType,
+  ProfileFieldKey,
+  FieldEditPolicy,
+  ProfileFieldPolicyConfig,
+  ProfileChangeRequest,
+  ProfileChangeItem,
 } from '@/types';
 import { calculateSemiMonthlyPayroll } from '@/lib/payroll/philippineTaxEngine';
 
@@ -463,6 +470,25 @@ const SEED_TASKS: HumanTask[] = [
     actions: ['APPROVE', 'REJECT'],
     createdAt: '2026-08-18T08:30:00Z',
   },
+  {
+    id: 'tsk_prof_sarah_1',
+    organizationId: 'org_autohr_ph',
+    workflowInstanceId: 'wf_prof_101',
+    module: 'PROFILE',
+    title: 'Profile Change Approval: Sarah Bautista (Bank Details)',
+    description: 'Sarah Bautista requested updates to Philippine Payroll Bank Name & Account Number.',
+    assignedToUserId: 'usr_eleanor',
+    assignedToName: 'Eleanor Santos',
+    priority: 'HIGH',
+    status: 'OPEN',
+    dueDate: '2026-08-21T18:00:00Z',
+    slaHours: 48,
+    isBreached: false,
+    entityType: 'ProfileChangeRequest',
+    entityId: 'req_change_sarah_bank',
+    actions: ['APPROVE', 'REJECT'],
+    createdAt: '2026-08-18T10:00:00Z',
+  },
 ];
 
 const SEED_NOTIFICATIONS: NotificationItem[] = [
@@ -493,6 +519,59 @@ const SEED_NOTIFICATIONS: NotificationItem[] = [
     isRead: true,
     status: 'SENT',
     createdAt: '2026-08-18T09:02:14Z',
+  },
+];
+
+export const DEFAULT_PROFILE_FIELD_POLICIES: ProfileFieldPolicyConfig = {
+  phone: 'DIRECT_EDIT',
+  personalEmail: 'DIRECT_EDIT',
+  address: 'DIRECT_EDIT',
+  emergencyContactName: 'DIRECT_EDIT',
+  emergencyContactPhone: 'DIRECT_EDIT',
+  emergencyContactRelationship: 'DIRECT_EDIT',
+  avatarUrl: 'DIRECT_EDIT',
+  maritalStatus: 'APPROVAL_REQUIRED',
+  tinNumber: 'APPROVAL_REQUIRED',
+  sssNumber: 'APPROVAL_REQUIRED',
+  philHealthNumber: 'APPROVAL_REQUIRED',
+  pagIbigNumber: 'APPROVAL_REQUIRED',
+  bankName: 'APPROVAL_REQUIRED',
+  bankAccountNumber: 'APPROVAL_REQUIRED',
+  bankAccountName: 'APPROVAL_REQUIRED',
+};
+
+const SEED_PROFILE_CHANGE_REQUESTS: ProfileChangeRequest[] = [
+  {
+    id: 'req_change_sarah_bank',
+    organizationId: 'org_autohr_ph',
+    employeeId: 'emp_sarah',
+    employeeName: 'Sarah Bautista',
+    requestedByUserId: 'usr_sarah',
+    requestedByName: 'Sarah Bautista',
+    status: 'PENDING',
+    changes: [
+      {
+        field: 'bankName',
+        label: 'Payroll Disbursement Bank',
+        previousValue: 'BDO Unibank',
+        requestedValue: 'Bank of the Philippine Islands (BPI)',
+      },
+      {
+        field: 'bankAccountNumber',
+        label: 'Bank Account Number',
+        previousValue: '0012-3456-7890',
+        requestedValue: '3045-8912-4411',
+      },
+      {
+        field: 'bankAccountName',
+        label: 'Account Holder Name',
+        previousValue: 'Sarah Bautista',
+        requestedValue: 'Sarah M. Bautista',
+      },
+    ],
+    reason: 'Updated my salary disbursement account to my primary BPI payroll savings account.',
+    createdAt: '2026-08-18T10:00:00Z',
+    updatedAt: '2026-08-18T10:00:00Z',
   },
 ];
 
@@ -688,6 +767,7 @@ class AutoHRDataStore {
   private workflows: WorkflowDefinition[] = [...SEED_WORKFLOWS];
   private tasks: HumanTask[] = [...SEED_TASKS];
   private notifications: NotificationItem[] = [...SEED_NOTIFICATIONS];
+  private profileChangeRequests: ProfileChangeRequest[] = [...SEED_PROFILE_CHANGE_REQUESTS];
   private incidents: NotificationIncident[] = [];
   private auditEvents: AuditEvent[] = [...SEED_AUDIT_LOGS];
 
@@ -714,6 +794,7 @@ class AutoHRDataStore {
           if (parsed.clockRecords) this.clockRecords = parsed.clockRecords;
           if (parsed.tasks) this.tasks = parsed.tasks;
           if (parsed.notifications) this.notifications = parsed.notifications;
+          if (parsed.profileChangeRequests) this.profileChangeRequests = parsed.profileChangeRequests;
           if (parsed.auditEvents) this.auditEvents = parsed.auditEvents;
           if (parsed.payrollPeriods) this.payrollPeriods = parsed.payrollPeriods;
           if (parsed.payslips) this.payslips = parsed.payslips;
@@ -746,6 +827,7 @@ class AutoHRDataStore {
             clockRecords: this.clockRecords,
             tasks: this.tasks,
             notifications: this.notifications,
+            profileChangeRequests: this.profileChangeRequests,
             auditEvents: this.auditEvents,
             payrollPeriods: this.payrollPeriods,
             payslips: this.payslips,
@@ -1439,6 +1521,347 @@ class AutoHRDataStore {
     this.logAudit('DOCUMENT_UPLOADED', 'DocumentItem', id, {}, newDoc);
     this.persist();
     return newDoc;
+  }
+
+  public updateUserAccess(
+    userId: ID,
+    updates: {
+      roleId?: ID;
+      roleType?: SystemRoleType | 'CUSTOM';
+      roleName?: string;
+      allowedModules?: AppModule[];
+      isActive?: boolean;
+      isOwner?: boolean;
+    }
+  ): User | undefined {
+    const userIndex = this.users.findIndex(u => u.id === userId);
+    if (userIndex === -1) return undefined;
+
+    const previousUser = { ...this.users[userIndex] };
+    const updatedUser: User = {
+      ...this.users[userIndex],
+      ...updates,
+    };
+
+    this.users[userIndex] = updatedUser;
+
+    // If current logged-in user is the one being updated, keep state in sync
+    if (this.currentUser.id === userId) {
+      this.currentUser = { ...updatedUser };
+    }
+
+    this.logAudit(
+      'USER_ACCESS_PERMISSIONS_MODIFIED',
+      'User',
+      userId,
+      { role: previousUser.roleName, modules: previousUser.allowedModules, active: previousUser.isActive },
+      { role: updatedUser.roleName, modules: updatedUser.allowedModules, active: updatedUser.isActive }
+    );
+    this.persist();
+    return updatedUser;
+  }
+
+  public createRole(roleData: Omit<Role, 'id' | 'organizationId' | 'createdAt'>): Role {
+    const id = `role_${Date.now().toString(36)}`;
+    const newRole: Role = {
+      ...roleData,
+      id,
+      organizationId: this.organization.id,
+      createdAt: new Date().toISOString(),
+    };
+    this.roles.push(newRole);
+    this.logAudit('ROLE_CREATED', 'Role', id, {}, newRole);
+    this.persist();
+    return newRole;
+  }
+
+  public updateRole(roleId: ID, updates: Partial<Omit<Role, 'id' | 'organizationId' | 'createdAt'>>): Role | undefined {
+    const roleIndex = this.roles.findIndex(r => r.id === roleId);
+    if (roleIndex === -1) return undefined;
+
+    const prevRole = { ...this.roles[roleIndex] };
+    const updatedRole: Role = {
+      ...this.roles[roleIndex],
+      ...updates,
+    };
+
+    this.roles[roleIndex] = updatedRole;
+    this.logAudit('ROLE_UPDATED', 'Role', roleId, prevRole, updatedRole);
+    this.persist();
+    return updatedRole;
+  }
+
+  public deleteRole(roleId: ID): boolean {
+    const role = this.roles.find(r => r.id === roleId);
+    if (!role || role.isSystem) return false;
+
+    this.roles = this.roles.filter(r => r.id !== roleId);
+    this.logAudit('ROLE_DELETED', 'Role', roleId, role, {});
+    this.persist();
+    return true;
+  }
+
+  // -------------------------------------------------------------------------
+  // Profile Field-Level Policy & Change Request Operations
+  // -------------------------------------------------------------------------
+
+  public getProfileChangeRequests(employeeId?: ID): ProfileChangeRequest[] {
+    return employeeId
+      ? this.profileChangeRequests.filter(r => r.employeeId === employeeId)
+      : this.profileChangeRequests;
+  }
+
+  public getProfileFieldPolicy(field: ProfileFieldKey, employee?: Employee): FieldEditPolicy {
+    if (employee && employee.fieldPolicyOverrides && employee.fieldPolicyOverrides[field]) {
+      return employee.fieldPolicyOverrides[field]!;
+    }
+    if (this.organization.settings.profileFieldPolicies && this.organization.settings.profileFieldPolicies[field]) {
+      return this.organization.settings.profileFieldPolicies[field]!;
+    }
+    return DEFAULT_PROFILE_FIELD_POLICIES[field] || 'READ_ONLY';
+  }
+
+  public updateGlobalFieldPolicies(policies: Partial<ProfileFieldPolicyConfig>) {
+    const current = this.organization.settings.profileFieldPolicies || DEFAULT_PROFILE_FIELD_POLICIES;
+    this.organization.settings.profileFieldPolicies = {
+      ...current,
+      ...policies,
+    };
+    this.organization.updatedAt = new Date().toISOString();
+    this.logAudit('PROFILE_FIELD_POLICIES_UPDATED', 'Organization', this.organization.id, current, policies);
+    this.persist();
+  }
+
+  public updateEmployeeFieldPolicyOverrides(employeeId: ID, overrides: Partial<ProfileFieldPolicyConfig>): Employee | undefined {
+    const empIndex = this.employees.findIndex(e => e.id === employeeId);
+    if (empIndex === -1) return undefined;
+
+    const currentOverrides = this.employees[empIndex].fieldPolicyOverrides || {};
+    const newOverrides = { ...currentOverrides, ...overrides };
+    this.employees[empIndex] = {
+      ...this.employees[empIndex],
+      fieldPolicyOverrides: newOverrides,
+      updatedAt: new Date().toISOString(),
+    };
+
+    this.logAudit('EMPLOYEE_FIELD_POLICY_OVERRIDES_UPDATED', 'Employee', employeeId, currentOverrides, newOverrides);
+    this.persist();
+    return this.employees[empIndex];
+  }
+
+  public submitProfileChangeRequest(params: {
+    employeeId: ID;
+    directUpdates?: Partial<Employee>;
+    approvalChanges?: ProfileChangeItem[];
+    reason?: string;
+  }): { updatedEmployee?: Employee; changeRequest?: ProfileChangeRequest } {
+    const empIndex = this.employees.findIndex(e => e.id === params.employeeId);
+    if (empIndex === -1) throw new Error('Employee record not found.');
+
+    let updatedEmployee = this.employees[empIndex];
+
+    // 1. Process immediate direct updates if any
+    if (params.directUpdates && Object.keys(params.directUpdates).length > 0) {
+      const prevEmp = { ...this.employees[empIndex] };
+      updatedEmployee = {
+        ...this.employees[empIndex],
+        ...params.directUpdates,
+        updatedAt: new Date().toISOString(),
+      };
+      this.employees[empIndex] = updatedEmployee;
+
+      // Sync linked user display name / avatar if changed
+      const userIndex = this.users.findIndex(u => u.employeeId === params.employeeId);
+      if (userIndex !== -1) {
+        if (params.directUpdates.avatarUrl) {
+          this.users[userIndex].avatarUrl = params.directUpdates.avatarUrl;
+        }
+        if (params.directUpdates.firstName || params.directUpdates.lastName) {
+          this.users[userIndex].displayName = `${updatedEmployee.firstName} ${updatedEmployee.lastName}`;
+        }
+      }
+
+      this.logAudit('PROFILE_DIRECT_EDIT_SAVED', 'Employee', params.employeeId, prevEmp, params.directUpdates);
+    }
+
+    // 2. Process approval-required changes if any
+    let changeRequest: ProfileChangeRequest | undefined;
+    if (params.approvalChanges && params.approvalChanges.length > 0) {
+      const requestId = `req_prof_${Date.now().toString(36)}`;
+      changeRequest = {
+        id: requestId,
+        organizationId: this.organization.id,
+        employeeId: params.employeeId,
+        employeeName: `${updatedEmployee.firstName} ${updatedEmployee.lastName}`,
+        requestedByUserId: this.currentUser.id,
+        requestedByName: this.currentUser.displayName,
+        status: 'PENDING',
+        changes: params.approvalChanges,
+        reason: params.reason,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      };
+
+      this.profileChangeRequests.unshift(changeRequest);
+
+      // Create Task for HR Admin / Superuser in My Tasks
+      const fieldList = params.approvalChanges.map(c => c.label).join(', ');
+      const newTask: HumanTask = {
+        id: `tsk_${Date.now().toString(36)}`,
+        organizationId: this.organization.id,
+        workflowInstanceId: `wf_prof_${Date.now().toString(36)}`,
+        module: 'PROFILE',
+        title: `Profile Change Approval: ${updatedEmployee.firstName} ${updatedEmployee.lastName} (${fieldList})`,
+        description: `${updatedEmployee.firstName} ${updatedEmployee.lastName} requested modifications to: ${fieldList}. Reason: ${params.reason || 'Employee profile update.'}`,
+        assignedToUserId: 'usr_eleanor',
+        assignedToName: 'Eleanor Santos',
+        priority: 'HIGH',
+        status: 'OPEN',
+        dueDate: new Date(Date.now() + 48 * 3600000).toISOString(),
+        slaHours: 48,
+        isBreached: false,
+        entityType: 'ProfileChangeRequest',
+        entityId: requestId,
+        actions: ['APPROVE', 'REJECT'],
+        createdAt: new Date().toISOString(),
+      };
+
+      this.tasks.unshift(newTask);
+
+      // Send in-app notification to HR
+      this.notifications.unshift({
+        id: `notif_${Date.now().toString(36)}`,
+        organizationId: this.organization.id,
+        recipientUserId: 'usr_eleanor',
+        title: 'New Profile Change Request Pending Review',
+        message: `${updatedEmployee.firstName} ${updatedEmployee.lastName} submitted changes requiring HR authorization.`,
+        channel: 'IN_APP',
+        priority: 'HIGH',
+        module: 'PROFILE',
+        link: '/tasks',
+        isRead: false,
+        status: 'SENT',
+        createdAt: new Date().toISOString(),
+      });
+
+      this.logAudit('PROFILE_CHANGE_REQUEST_SUBMITTED', 'ProfileChangeRequest', requestId, {}, changeRequest);
+    }
+
+    this.persist();
+    return { updatedEmployee, changeRequest };
+  }
+
+  public approveProfileChangeRequest(requestId: ID, reviewerUser: User): ProfileChangeRequest | undefined {
+    const reqIndex = this.profileChangeRequests.findIndex(r => r.id === requestId);
+    if (reqIndex === -1) return undefined;
+
+    const request = this.profileChangeRequests[reqIndex];
+    if (request.status !== 'PENDING') return request;
+
+    const empIndex = this.employees.findIndex(e => e.id === request.employeeId);
+    if (empIndex === -1) return undefined;
+
+    // Apply all requested changes to official employee record
+    const updates: Record<string, any> = {};
+    request.changes.forEach(c => {
+      updates[c.field] = c.requestedValue;
+    });
+
+    this.employees[empIndex] = {
+      ...this.employees[empIndex],
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Update request state
+    const updatedRequest: ProfileChangeRequest = {
+      ...request,
+      status: 'APPROVED',
+      reviewedByUserId: reviewerUser.id,
+      reviewedByName: reviewerUser.displayName,
+      reviewedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.profileChangeRequests[reqIndex] = updatedRequest;
+
+    // Complete associated task
+    const task = this.tasks.find(t => t.entityType === 'ProfileChangeRequest' && t.entityId === requestId);
+    if (task) {
+      task.status = 'COMPLETED';
+      task.completedAt = new Date().toISOString();
+    }
+
+    // Send confirmation notification to requesting employee
+    const targetUser = this.users.find(u => u.employeeId === request.employeeId);
+    if (targetUser) {
+      this.notifications.unshift({
+        id: `notif_${Date.now().toString(36)}`,
+        organizationId: this.organization.id,
+        recipientUserId: targetUser.id,
+        title: 'Profile Change Request Approved',
+        message: `Your requested profile changes have been verified and applied by ${reviewerUser.displayName}.`,
+        channel: 'IN_APP',
+        priority: 'NORMAL',
+        module: 'PROFILE',
+        link: '/profile',
+        isRead: false,
+        status: 'SENT',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    this.logAudit('PROFILE_CHANGE_REQUEST_APPROVED', 'ProfileChangeRequest', requestId, request, updatedRequest);
+    this.persist();
+    return updatedRequest;
+  }
+
+  public rejectProfileChangeRequest(requestId: ID, reviewerUser: User, reason?: string): ProfileChangeRequest | undefined {
+    const reqIndex = this.profileChangeRequests.findIndex(r => r.id === requestId);
+    if (reqIndex === -1) return undefined;
+
+    const request = this.profileChangeRequests[reqIndex];
+    if (request.status !== 'PENDING') return request;
+
+    const updatedRequest: ProfileChangeRequest = {
+      ...request,
+      status: 'REJECTED',
+      rejectionReason: reason || 'Not approved by HR administrator.',
+      reviewedByUserId: reviewerUser.id,
+      reviewedByName: reviewerUser.displayName,
+      reviewedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    this.profileChangeRequests[reqIndex] = updatedRequest;
+
+    // Cancel associated task
+    const task = this.tasks.find(t => t.entityType === 'ProfileChangeRequest' && t.entityId === requestId);
+    if (task) {
+      task.status = 'CANCELLED';
+      task.completedAt = new Date().toISOString();
+    }
+
+    // Send notification to requesting employee
+    const targetUser = this.users.find(u => u.employeeId === request.employeeId);
+    if (targetUser) {
+      this.notifications.unshift({
+        id: `notif_${Date.now().toString(36)}`,
+        organizationId: this.organization.id,
+        recipientUserId: targetUser.id,
+        title: 'Profile Change Request Declined',
+        message: `Your requested profile updates were not approved. Reason: ${reason || 'Details could not be verified by HR.'}`,
+        channel: 'IN_APP',
+        priority: 'HIGH',
+        module: 'PROFILE',
+        link: '/profile',
+        isRead: false,
+        status: 'SENT',
+        createdAt: new Date().toISOString(),
+      });
+    }
+
+    this.logAudit('PROFILE_CHANGE_REQUEST_REJECTED', 'ProfileChangeRequest', requestId, request, updatedRequest);
+    this.persist();
+    return updatedRequest;
   }
 
   private logAudit(action: string, resourceType: string, resourceId: string, previousState?: any, newState?: any) {

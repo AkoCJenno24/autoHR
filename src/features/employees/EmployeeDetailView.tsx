@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { db } from '@/lib/db';
-import { Employee, AuditEvent } from '@/types';
+import { Employee, AuditEvent, User, Role, ProfileFieldKey, FieldEditPolicy } from '@/types';
 import { formatCurrency, formatDate } from '@/lib/utils';
+import { getUserAllowedModules, APP_MODULE_DEFINITIONS, isSuperUser } from '@/lib/permissions/rbac';
 import {
   Users,
   Building2,
@@ -18,26 +19,43 @@ import {
   ShieldCheck,
   Edit,
   CheckCircle2,
+  KeyRound,
+  Layers,
+  ShieldAlert,
 } from 'lucide-react';
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs } from '@/components/ui/tabs';
+import { UserAccessModal } from '@/features/admin/UserAccessModal';
 
 export function EmployeeDetailView() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [employee, setEmployee] = useState<Employee | undefined>();
+  const [associatedUser, setAssociatedUser] = useState<User | undefined>();
+  const [roles, setRoles] = useState<Role[]>([]);
   const [activeTab, setActiveTab] = useState('overview');
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [isAccessModalOpen, setIsAccessModalOpen] = useState(false);
 
-  useEffect(() => {
+  const loadData = () => {
     if (id) {
       const emp = db.getEmployeeById(id);
       setEmployee(emp);
-      const events = db.getAuditEvents().filter(a => a.resourceId === id);
+      const allUsers = db.getUsers();
+      const user = allUsers.find(u => u.employeeId === id || (emp && u.email.toLowerCase() === emp.email.toLowerCase()));
+      setAssociatedUser(user);
+      setRoles(db.getRoles());
+      const events = db.getAuditEvents().filter(a => a.resourceId === id || (user && a.resourceId === user.id));
       setAuditEvents(events);
     }
+  };
+
+  useEffect(() => {
+    loadData();
+    const unsub = db.subscribe(loadData);
+    return () => unsub();
   }, [id]);
 
   if (!employee) {
@@ -57,6 +75,7 @@ export function EmployeeDetailView() {
   const tabs = [
     { id: 'overview', label: 'Overview & Profile', icon: <Users className="w-4 h-4" /> },
     { id: 'employment', label: 'Employment & Hierarchy', icon: <Briefcase className="w-4 h-4" /> },
+    { id: 'access', label: 'Access & Permissions', icon: <KeyRound className="w-4 h-4" /> },
     { id: 'compensation', label: 'Compensation & Bank', icon: <CreditCard className="w-4 h-4" /> },
     { id: 'documents', label: 'Documents', icon: <FileText className="w-4 h-4" /> },
     { id: 'history', label: 'Audit Trail & History', icon: <History className="w-4 h-4" /> },
@@ -109,7 +128,18 @@ export function EmployeeDetailView() {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {associatedUser && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsAccessModalOpen(true)}
+              className="text-xs font-semibold text-primary hover:bg-primary/5 hover:border-primary/40 gap-1.5"
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              Manage Access & Role
+            </Button>
+          )}
           <Link to="/leave">
             <Button variant="outline" size="sm">
               <Calendar className="w-4 h-4" /> View Leaves
@@ -218,6 +248,171 @@ export function EmployeeDetailView() {
                 <span className="font-semibold text-success">Completed & Confirmed</span>
               </div>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab: Access & Permissions */}
+      {activeTab === 'access' && (
+        <Card className="animate-fade-in">
+          <CardHeader>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <KeyRound className="w-5 h-5 text-primary" />
+                  Account Security & Module Permissions
+                </CardTitle>
+                <CardDescription>
+                  Configure system role, platform module visibility, and user login authorization
+                </CardDescription>
+              </div>
+              {associatedUser && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setIsAccessModalOpen(true)}
+                  className="gap-1.5"
+                >
+                  <KeyRound className="w-4 h-4" /> Edit Access & Modules
+                </Button>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-6 text-xs">
+            {associatedUser ? (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="p-4 bg-slate-50 rounded-xl border border-neutral-border space-y-1">
+                    <span className="text-neutral-text-muted font-medium block">Assigned Role</span>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Badge variant="primary" size="md">{associatedUser.roleName}</Badge>
+                      <span className="text-[11px] font-mono text-neutral-text-muted">({associatedUser.roleType})</span>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-xl border border-neutral-border space-y-1">
+                    <span className="text-neutral-text-muted font-medium block">Login Account Status</span>
+                    <div className="mt-1">
+                      <Badge variant={associatedUser.isActive ? 'success' : 'danger'} size="md">
+                        {associatedUser.isActive ? 'Active & Permitted' : 'Suspended'}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <div className="p-4 bg-slate-50 rounded-xl border border-neutral-border space-y-1">
+                    <span className="text-neutral-text-muted font-medium block">Accessible Modules</span>
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-bold text-neutral-text-primary">
+                        {getUserAllowedModules(associatedUser, roles).length} of {APP_MODULE_DEFINITIONS.length} Modules
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <h4 className="text-xs font-bold text-neutral-text-primary uppercase tracking-wider">
+                    Allowed Platform Areas Breakdown
+                  </h4>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2">
+                    {APP_MODULE_DEFINITIONS.map(mod => {
+                      const isAllowed = getUserAllowedModules(associatedUser, roles).includes(mod.id);
+                      return (
+                        <div
+                          key={mod.id}
+                          className={`p-3 rounded-xl border flex items-center justify-between ${
+                            isAllowed
+                              ? 'bg-primary/5 border-primary/20 text-neutral-text-primary'
+                              : 'bg-slate-50 border-neutral-border/60 text-neutral-text-muted opacity-60'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <span className="font-semibold text-xs block truncate">{mod.name}</span>
+                            <span className="text-[10px] font-mono text-neutral-text-muted">{mod.path}</span>
+                          </div>
+                          <Badge variant={isAllowed ? 'success' : 'neutral'} size="sm">
+                            {isAllowed ? 'Allowed' : 'Blocked'}
+                          </Badge>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                {/* Profile Field Policies for this Employee */}
+                <div className="space-y-3 pt-3 border-t border-neutral-border/60">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h4 className="text-xs font-bold text-neutral-text-primary uppercase tracking-wider">
+                        Self-Service Profile Field Editing Policies
+                      </h4>
+                      <p className="text-[11px] text-neutral-text-muted mt-0.5">
+                        Controls what fields {employee.firstName} can edit directly, route for HR approval, or view as read-only.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {([
+                      { key: 'phone', label: 'Mobile Phone' },
+                      { key: 'personalEmail', label: 'Personal Email' },
+                      { key: 'address', label: 'Residential Address' },
+                      { key: 'maritalStatus', label: 'Civil / Marital Status' },
+                      { key: 'tinNumber', label: 'BIR TIN Number' },
+                      { key: 'sssNumber', label: 'SSS Number' },
+                      { key: 'philHealthNumber', label: 'PhilHealth PIN' },
+                      { key: 'pagIbigNumber', label: 'Pag-IBIG MID' },
+                      { key: 'bankName', label: 'Bank Name' },
+                      { key: 'bankAccountNumber', label: 'Bank Account Number' },
+                    ] as { key: ProfileFieldKey; label: string }[]).map(field => {
+                      const effectivePolicy = db.getProfileFieldPolicy(field.key, employee);
+                      const isCustom = Boolean(employee.fieldPolicyOverrides?.[field.key]);
+                      return (
+                        <div
+                          key={field.key}
+                          className="p-3 bg-white rounded-xl border border-neutral-border flex items-center justify-between gap-2"
+                        >
+                          <div>
+                            <span className="font-semibold text-xs text-neutral-text-primary block">
+                              {field.label}
+                            </span>
+                            <span className="text-[10px] text-neutral-text-muted">
+                              {isCustom ? 'Custom Override' : 'Global Default'}
+                            </span>
+                          </div>
+
+                          <div className="flex items-center gap-1">
+                            <select
+                              value={effectivePolicy}
+                              onChange={e => {
+                                const newPolicy = e.target.value as FieldEditPolicy;
+                                db.updateEmployeeFieldPolicyOverrides(employee.id, {
+                                  [field.key]: newPolicy,
+                                });
+                                loadData();
+                              }}
+                              className="text-[11px] font-semibold rounded-lg px-2 py-1 bg-slate-50 border border-neutral-border text-neutral-text-primary focus:ring-1 focus:ring-primary"
+                            >
+                              <option value="READ_ONLY">🔒 Read-Only</option>
+                              <option value="DIRECT_EDIT">⚡ Direct Edit</option>
+                              <option value="APPROVAL_REQUIRED">⏳ Route Approval</option>
+                            </select>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-8 text-center bg-slate-50 rounded-xl border border-neutral-border space-y-3">
+                <ShieldAlert className="w-8 h-8 text-amber-500 mx-auto" />
+                <h4 className="text-sm font-bold text-neutral-text-primary">No Linked User Account Found</h4>
+                <p className="text-xs text-neutral-text-muted max-w-sm mx-auto">
+                  This employee record does not have an active platform login account linked to {employee.email}.
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
@@ -332,6 +527,16 @@ export function EmployeeDetailView() {
             </div>
           </CardContent>
         </Card>
+      )}
+
+      {/* User Access & Permissions Modal */}
+      {associatedUser && (
+        <UserAccessModal
+          isOpen={isAccessModalOpen}
+          onClose={() => setIsAccessModalOpen(false)}
+          targetUser={associatedUser}
+          onSaved={loadData}
+        />
       )}
     </div>
   );

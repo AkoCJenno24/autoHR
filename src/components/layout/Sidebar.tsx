@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
-import { User } from '@/types';
+import { User, AppModule } from '@/types';
 import {
   LayoutDashboard,
   Users,
@@ -14,10 +14,12 @@ import {
   Bell,
   BarChart3,
   Settings,
+  UserCircle,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { db } from '@/lib/db';
+import { canAccessModule } from '@/lib/permissions/rbac';
 
 interface SidebarProps {
   currentUser: User;
@@ -29,58 +31,65 @@ export function Sidebar({ currentUser, isOpenMobile = false, onCloseMobile }: Si
   const location = useLocation();
   const [tasks, setTasks] = useState(db.getTasks(currentUser.id));
   const [org, setOrg] = useState(db.getOrganization());
+  const [roles, setRoles] = useState(db.getRoles());
 
   useEffect(() => {
     const unsub = db.subscribe(() => {
       setTasks(db.getTasks(currentUser.id));
       setOrg(db.getOrganization());
+      setRoles(db.getRoles());
     });
     return () => unsub();
   }, [currentUser.id]);
 
   const openTasksCount = tasks.filter(t => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length;
 
-  const isOwner = currentUser.roleType === 'OWNER' || currentUser.isOwner === true;
-  const isHR = isOwner || currentUser.roleType === 'HR_ADMIN' || currentUser.roleType === 'SUPER_ADMIN';
-  const isManager = currentUser.roleType === 'DEPT_MANAGER' || isHR;
+  interface NavItem {
+    name: string;
+    path: string;
+    icon: React.ComponentType<{ className?: string }>;
+    module: AppModule;
+    badge?: number;
+  }
 
-  const navSections = [
+  const rawSections: { title: string | null; items: NavItem[] }[] = [
     {
       title: null,
       items: [
-        { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-        { name: 'My tasks', path: '/tasks', icon: CheckSquare, badge: openTasksCount > 0 ? openTasksCount : undefined },
-        { name: 'Attendance', path: '/attendance', icon: Clock },
-        { name: 'Leave & time off', path: '/leave', icon: CalendarCheck },
-        { name: 'Payslips', path: '/payroll', icon: CreditCard },
-        { name: 'Documents', path: '/documents', icon: FileText },
+        { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, module: 'dashboard' },
+        { name: 'My profile', path: '/profile', icon: UserCircle, module: 'profile' },
+        { name: 'My tasks', path: '/tasks', icon: CheckSquare, module: 'tasks', badge: openTasksCount > 0 ? openTasksCount : undefined },
+        { name: 'Attendance', path: '/attendance', icon: Clock, module: 'attendance' },
+        { name: 'Leave & time off', path: '/leave', icon: CalendarCheck, module: 'leave' },
+        { name: 'Payslips', path: '/payroll', icon: CreditCard, module: 'payroll' },
+        { name: 'Documents', path: '/documents', icon: FileText, module: 'documents' },
       ],
     },
-    ...(isManager
-      ? [
-          {
-            title: 'Team',
-            items: [
-              { name: 'Employees', path: '/employees', icon: Users },
-              { name: 'Organization', path: '/organization', icon: Building2 },
-              { name: 'Workflows', path: '/workflows', icon: GitMerge },
-            ],
-          },
-        ]
-      : []),
-    ...(isHR
-      ? [
-          {
-            title: 'Admin',
-            items: [
-              { name: 'Reports', path: '/reports', icon: BarChart3 },
-              { name: 'Notifications', path: '/notifications', icon: Bell },
-              { name: 'Settings & access', path: '/admin', icon: Settings },
-            ],
-          },
-        ]
-      : []),
+    {
+      title: 'Team',
+      items: [
+        { name: 'Employees', path: '/employees', icon: Users, module: 'employees' },
+        { name: 'Organization', path: '/organization', icon: Building2, module: 'organization' },
+        { name: 'Workflows', path: '/workflows', icon: GitMerge, module: 'workflows' },
+      ],
+    },
+    {
+      title: 'Admin',
+      items: [
+        { name: 'Reports', path: '/reports', icon: BarChart3, module: 'reports' },
+        { name: 'Notifications', path: '/notifications', icon: Bell, module: 'notifications' },
+        { name: 'Settings & access', path: '/admin', icon: Settings, module: 'admin' },
+      ],
+    },
   ];
+
+  // Filter sections and items based on module access
+  const navSections = rawSections
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => canAccessModule(currentUser, item.module, roles)),
+    }))
+    .filter(section => section.items.length > 0);
 
   const sidebarContent = (
     <div className="flex flex-col h-full bg-[#1A1625] text-slate-300 select-none">

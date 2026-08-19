@@ -2,7 +2,7 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '@/lib/auth/AuthContext';
 import { Permission, SystemRoleType } from '@/types';
-import { hasPermission } from '@/lib/permissions/rbac';
+import { hasPermission, canAccessModule, getModuleFromPath, getUserAllowedModules } from '@/lib/permissions/rbac';
 import { db } from '@/lib/db';
 import { ShieldAlert, Lock, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -76,20 +76,27 @@ export function ProtectedRoute({
     );
   }
 
-  // 5. Permission gate
   const customRoles = db.getRoles();
+
+  // 5. Module-level access protection
+  const targetModule = getModuleFromPath(location.pathname);
+  if (targetModule && !canAccessModule(user, targetModule, customRoles)) {
+    const allowedModules = getUserAllowedModules(user, customRoles);
+    const fallbackPath = allowedModules.includes('dashboard')
+      ? '/dashboard'
+      : allowedModules.length > 0
+      ? `/${allowedModules[0]}`
+      : '/login';
+
+    // If current path is already fallback, avoid infinite loop
+    if (location.pathname !== fallbackPath) {
+      return <Navigate to={fallbackPath} replace />;
+    }
+  }
+
+  // 6. Explicit Permission gate
   if (requiredPermission && !hasPermission(user, requiredPermission, customRoles)) {
-    return (
-      <div className="p-8 text-center space-y-4">
-        <div className="w-12 h-12 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center mx-auto">
-          <Lock className="w-6 h-6" />
-        </div>
-        <h3 className="text-lg font-bold text-neutral-text-primary font-display">Restricted</h3>
-        <p className="text-sm text-neutral-text-muted max-w-md mx-auto">
-          Your role ({user.roleName}) doesn't have access to this section.
-        </p>
-      </div>
-    );
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;

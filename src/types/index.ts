@@ -52,6 +52,7 @@ export interface Organization {
     requireGeofence: boolean;
     requireBiometrics: boolean;
     enforcePhilippineStatutory?: boolean;
+    profileFieldPolicies?: Partial<Record<ProfileFieldKey, FieldEditPolicy>>;
   };
   createdAt: string;
   updatedAt: string;
@@ -140,6 +141,79 @@ export type Permission =
   | 'admin.manage_settings'
   | 'admin.view_audit';
 
+export type AppModule =
+  | 'dashboard'
+  | 'profile'
+  | 'tasks'
+  | 'attendance'
+  | 'leave'
+  | 'payroll'
+  | 'documents'
+  | 'employees'
+  | 'organization'
+  | 'workflows'
+  | 'reports'
+  | 'notifications'
+  | 'admin';
+
+export interface ModuleInfo {
+  id: AppModule;
+  name: string;
+  description: string;
+  path: string;
+  category: 'core' | 'workplace' | 'management' | 'system';
+}
+
+// ------------------------------------------
+// Profile Field Editing Policies & Approval Routing
+// ------------------------------------------
+
+export type FieldEditPolicy = 'READ_ONLY' | 'DIRECT_EDIT' | 'APPROVAL_REQUIRED';
+
+export type ProfileFieldKey =
+  | 'phone'
+  | 'personalEmail'
+  | 'address'
+  | 'emergencyContactName'
+  | 'emergencyContactPhone'
+  | 'emergencyContactRelationship'
+  | 'maritalStatus'
+  | 'tinNumber'
+  | 'sssNumber'
+  | 'philHealthNumber'
+  | 'pagIbigNumber'
+  | 'bankName'
+  | 'bankAccountNumber'
+  | 'bankAccountName'
+  | 'avatarUrl';
+
+export type ProfileFieldPolicyConfig = Record<ProfileFieldKey, FieldEditPolicy>;
+
+export interface ProfileChangeItem {
+  field: ProfileFieldKey;
+  label: string;
+  previousValue: any;
+  requestedValue: any;
+}
+
+export interface ProfileChangeRequest {
+  id: ID;
+  organizationId: ID;
+  employeeId: ID;
+  employeeName: string;
+  requestedByUserId: ID;
+  requestedByName: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'CANCELLED';
+  changes: ProfileChangeItem[];
+  reason?: string;
+  reviewedByUserId?: ID;
+  reviewedByName?: string;
+  reviewedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export type SystemRoleType = 'OWNER' | 'SUPER_ADMIN' | 'HR_ADMIN' | 'DEPT_MANAGER' | 'EMPLOYEE' | 'PAYROLL_OFFICER';
 
 export interface Role {
@@ -150,6 +224,7 @@ export interface Role {
   description: string;
   isSystem: boolean;
   permissions: Permission[];
+  allowedModules?: AppModule[];
   createdAt: string;
 }
 
@@ -166,6 +241,7 @@ export interface User {
   isOwner?: boolean;
   avatarUrl?: string;
   lastLoginAt?: string;
+  allowedModules?: AppModule[];
 }
 
 // ------------------------------------------
@@ -211,12 +287,19 @@ export interface Employee {
   lastName: string;
   middleName?: string;
   email: string;
+  personalEmail?: string;
   phone?: string;
   dateOfBirth?: string;
   gender?: 'male' | 'female' | 'other' | 'undisclosed';
+  maritalStatus?: 'single' | 'married' | 'widowed' | 'separated' | 'other';
   nationalId?: string; // Philippine National ID (PhilSys)
   address?: string;
   avatarUrl?: string;
+
+  // Emergency Contact
+  emergencyContactName?: string;
+  emergencyContactPhone?: string;
+  emergencyContactRelationship?: string;
 
   // Philippine Statutory Numbers
   tinNumber?: string; // BIR Taxpayer Identification Number
@@ -246,7 +329,11 @@ export interface Employee {
   salaryRateType: 'MONTHLY' | 'HOURLY' | 'BI_WEEKLY';
   bankName?: string;
   bankAccountNumber?: string;
+  bankAccountName?: string;
   taxIdentificationNumber?: string; // Alias for tinNumber
+
+  // Field-level policy overrides specific to this employee
+  fieldPolicyOverrides?: Partial<Record<ProfileFieldKey, FieldEditPolicy>>;
 
   createdAt: string;
   updatedAt: string;
@@ -509,7 +596,7 @@ export interface HumanTask {
   id: ID;
   organizationId: ID;
   workflowInstanceId?: ID;
-  module: 'LEAVE' | 'ATTENDANCE' | 'PAYROLL' | 'GENERAL' | 'INCIDENT';
+  module: 'LEAVE' | 'ATTENDANCE' | 'PAYROLL' | 'PROFILE' | 'GENERAL' | 'INCIDENT';
   title: string;
   description: string;
   assignedToUserId?: ID;

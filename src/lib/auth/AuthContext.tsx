@@ -242,7 +242,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    return () => unsubscribe();
+    // Subscribe to local datastore changes so role/permission updates reflect immediately
+    const dbUnsub = db.subscribe(() => {
+      const currentStoredUser = db.getCurrentUser();
+      if (currentStoredUser) {
+        setUser(currentStoredUser);
+      }
+    });
+
+    return () => {
+      unsubscribe();
+      dbUnsub();
+    };
   }, []);
 
   // ── register(): create account, no company yet ──

@@ -15,6 +15,8 @@ import {
 import { Dialog } from '@/components/ui/dialog';
 import { Badge } from '@/components/ui/badge';
 
+import { canAccessModule } from '@/lib/permissions/rbac';
+
 export function GlobalSearchModal({
   isOpen,
   onClose,
@@ -26,6 +28,7 @@ export function GlobalSearchModal({
 }) {
   const [query, setQuery] = useState('');
   const navigate = useNavigate();
+  const roles = db.getRoles();
 
   useEffect(() => {
     if (isOpen) {
@@ -33,10 +36,15 @@ export function GlobalSearchModal({
     }
   }, [isOpen]);
 
-  const employees = db.getEmployees();
-  const leaveRequests = db.getLeaveRequests();
-  const documents = db.getDocuments();
-  const tasks = db.getTasks();
+  const canAccessEmployees = canAccessModule(currentUser, 'employees', roles);
+  const canAccessLeave = canAccessModule(currentUser, 'leave', roles);
+  const canAccessDocs = canAccessModule(currentUser, 'documents', roles);
+  const canAccessTasks = canAccessModule(currentUser, 'tasks', roles);
+
+  const employees = canAccessEmployees ? db.getEmployees() : [];
+  const leaveRequests = canAccessLeave ? db.getLeaveRequests() : [];
+  const documents = canAccessDocs ? db.getDocuments() : [];
+  const tasks = canAccessTasks ? db.getTasks(currentUser.id) : [];
 
   const filteredEmployees = query
     ? employees.filter(

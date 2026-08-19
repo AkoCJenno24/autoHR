@@ -36,11 +36,17 @@ export function TasksView() {
   const handleAction = (task: HumanTask, action: 'APPROVE' | 'REJECT') => {
     if (task.entityType === 'LeaveRequest') {
       db.decideLeaveRequest(task.entityId, action === 'APPROVE' ? 'APPROVED' : 'REJECTED', `Action taken via Task Inbox.`);
+    } else if (task.entityType === 'ProfileChangeRequest') {
+      if (action === 'APPROVE') {
+        db.approveProfileChangeRequest(task.entityId, currentUser);
+      } else {
+        db.rejectProfileChangeRequest(task.entityId, currentUser, 'Declined by HR administrator.');
+      }
     } else {
-      task.status = 'COMPLETED';
+      task.status = action === 'APPROVE' ? 'COMPLETED' : 'CANCELLED';
       task.completedAt = new Date().toISOString();
-      loadData();
     }
+    loadData();
   };
 
   const displayedTasks = tasks.filter(t => {

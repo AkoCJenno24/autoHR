@@ -12,6 +12,7 @@ import { OnboardingView } from '@/features/auth/OnboardingView';
 
 // App views
 import { DashboardView } from '@/features/dashboard/DashboardView';
+import { MyProfileView } from '@/features/profile/MyProfileView';
 import { EmployeeListView } from '@/features/employees/EmployeeListView';
 import { EmployeeDetailView } from '@/features/employees/EmployeeDetailView';
 import { OrganizationView } from '@/features/organization/OrganizationView';
@@ -52,6 +53,7 @@ export function App() {
           >
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<DashboardView />} />
+            <Route path="/profile" element={<MyProfileView />} />
             <Route path="/employees" element={<EmployeeListView />} />
             <Route path="/employees/:id" element={<EmployeeDetailView />} />
             <Route path="/organization" element={<OrganizationView />} />

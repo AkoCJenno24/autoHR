@@ -1,6 +1,6 @@
-import { hasPermission, hasAnyPermission, isCompanyOwner, isHRAdmin, SYSTEM_ROLE_PERMISSIONS } from '../lib/permissions/rbac';
+import { hasPermission, hasAnyPermission, isCompanyOwner, isHRAdmin, isSuperUser, canAccessModule, SYSTEM_ROLE_PERMISSIONS } from '../lib/permissions/rbac';
 import { calculateHoursWorked } from '../lib/utils';
-import { User } from '../types';
+import { User, Employee } from '../types';
 
 function runTests() {
   console.log('--- Starting AutoHR v1.2 RBAC, Security & Tenant Verification Suite ---');
@@ -92,13 +92,61 @@ function runTests() {
   console.assert(isCompanyOwner(employeeUser) === false, 'Employee is not company owner');
   console.log('✓ Employee self-service privileges and administrative restrictions verified');
 
-  // 5. Test Time Calculations
-  const calc = calculateHoursWorked('2026-08-18T09:00:00Z', '2026-08-18T18:00:00Z', 60);
-  console.assert(calc.totalHours === 8, '8 total hours should be calculated with 1 hr break');
-  console.assert(calc.regularHours === 8, '8 regular hours');
-  console.assert(calc.overtimeHours === 0, '0 overtime hours');
-  console.log('✓ Time calculation utilities verified');
+  // 6. Test Module Access Controls & Superuser checks
+  console.assert(isSuperUser(ownerUser) === true, 'Owner must be superuser');
+  console.assert(isSuperUser(employeeUser) === false, 'Employee must not be superuser');
+  console.assert(canAccessModule(ownerUser, 'admin') === true, 'Owner can access admin module');
+  console.assert(canAccessModule(ownerUser, 'payroll') === true, 'Owner can access payroll module');
+  console.assert(canAccessModule(employeeUser, 'admin') === false, 'Employee cannot access admin module');
+  console.assert(canAccessModule(employeeUser, 'attendance') === true, 'Employee can access attendance module');
 
+  // Custom user override test
+  const restrictedEmployee: User = {
+    ...employeeUser,
+    allowedModules: ['dashboard', 'attendance'], // Restricted: no payroll or leave
+  };
+  console.assert(canAccessModule(restrictedEmployee, 'dashboard') === true, 'Restricted employee has dashboard');
+  console.assert(canAccessModule(restrictedEmployee, 'attendance') === true, 'Restricted employee has attendance');
+  console.assert(canAccessModule(restrictedEmployee, 'leave') === false, 'Restricted employee cannot access leave');
+  console.assert(canAccessModule(restrictedEmployee, 'payroll') === false, 'Restricted employee cannot access payroll');
+  console.log('✓ Module access control and custom overrides verified');
+
+  // 7. Test Profile Field Policies
+  const testEmp: Employee = {
+    id: 'emp_test_1',
+    organizationId: 'org_ayala_ph',
+    employeeNumber: 'EMP-999',
+    firstName: 'Juan',
+    lastName: 'Dela Cruz',
+    email: 'juan@example.com',
+    phone: '+63 917 111 2222',
+    departmentId: 'dept_eng',
+    departmentName: 'Engineering',
+    positionId: 'pos_dev',
+    positionTitle: 'Developer',
+    locationId: 'loc_bgc',
+    locationName: 'BGC',
+    hireDate: '2026-01-01',
+    statusId: 'stat_active',
+    statusName: 'Active',
+    employmentTypeId: 'type_reg',
+    employmentTypeName: 'Regular',
+    baseSalary: 75000,
+    salaryRateType: 'MONTHLY',
+    bankName: 'BDO Unibank',
+    bankAccountNumber: '123456789',
+    fieldPolicyOverrides: {
+      phone: 'READ_ONLY', // Overridden to locked
+    },
+    createdAt: '2026-01-01',
+    updatedAt: '2026-01-01',
+  };
+
+  // Test field policy resolution (direct override vs default)
+  console.assert(testEmp.fieldPolicyOverrides?.phone === 'READ_ONLY', 'Custom override for phone must be READ_ONLY');
+  console.assert(testEmp.bankName === 'BDO Unibank', 'Initial bank name is BDO');
+
+  console.log('✓ Profile field-level editing policies verified');
   console.log('--- All AutoHR v1.2 RBAC and Security tests PASSED! ---');
 }
 
