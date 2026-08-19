@@ -1026,6 +1026,15 @@ class AutoHRDataStore {
     this.persist();
   }
 
+  public updateOrganizationProfile(profile: { name?: string; logoUrl?: string; address?: string }) {
+    if (profile.name !== undefined) this.organization.name = profile.name;
+    if (profile.logoUrl !== undefined) this.organization.logoUrl = profile.logoUrl;
+    if (profile.address !== undefined) this.organization.address = profile.address;
+    this.organization.updatedAt = new Date().toISOString();
+    this.logAudit('ORGANIZATION_PROFILE_UPDATED', 'Organization', this.organization.id, {}, profile);
+    this.persist();
+  }
+
   public getUsers(): User[] { return this.users; }
   public getEmployees(): Employee[] { return this.employees; }
   public getEmployeeById(id: ID): Employee | undefined { return this.employees.find(e => e.id === id); }

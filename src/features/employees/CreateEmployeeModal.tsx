@@ -375,6 +375,9 @@ export function CreateEmployeeModal({
                       { value: 'EMPLOYEE', label: 'Regular Employee (Self-Service)' },
                       { value: 'DEPT_MANAGER', label: 'Department Manager' },
                       { value: 'HR_ADMIN', label: 'HR Administrator' },
+                      ...(currentUser?.roleType === 'OWNER' || currentUser?.roleType === 'SUPER_ADMIN' || currentUser?.isOwner
+                        ? [{ value: 'SUPER_ADMIN', label: 'Super Administrator' }]
+                        : []),
                     ]}
                   />
 

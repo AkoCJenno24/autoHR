@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import { User } from '@/types';
 import {
@@ -27,13 +27,22 @@ interface SidebarProps {
 
 export function Sidebar({ currentUser, isOpenMobile = false, onCloseMobile }: SidebarProps) {
   const location = useLocation();
-  const tasks = db.getTasks(currentUser.id);
+  const [tasks, setTasks] = useState(db.getTasks(currentUser.id));
+  const [org, setOrg] = useState(db.getOrganization());
+
+  useEffect(() => {
+    const unsub = db.subscribe(() => {
+      setTasks(db.getTasks(currentUser.id));
+      setOrg(db.getOrganization());
+    });
+    return () => unsub();
+  }, [currentUser.id]);
+
   const openTasksCount = tasks.filter(t => t.status === 'OPEN' || t.status === 'IN_PROGRESS').length;
 
   const isOwner = currentUser.roleType === 'OWNER' || currentUser.isOwner === true;
   const isHR = isOwner || currentUser.roleType === 'HR_ADMIN' || currentUser.roleType === 'SUPER_ADMIN';
   const isManager = currentUser.roleType === 'DEPT_MANAGER' || isHR;
-  const org = db.getOrganization();
 
   const navSections = [
     {
@@ -78,16 +87,24 @@ export function Sidebar({ currentUser, isOpenMobile = false, onCloseMobile }: Si
       {/* Brand Header */}
       <div className="h-16 flex items-center justify-between px-5 sm:px-6 shrink-0">
         <div className="flex items-center gap-3">
-          {/* Logo mark — three stacked bars suggesting org hierarchy */}
-          <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #5B4CF5 0%, #8B5CF6 100%)' }}>
-            <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <rect x="0" y="0" width="16" height="3" rx="1.5" fill="white" fillOpacity="0.95"/>
-              <rect x="3" y="5.5" width="10" height="3" rx="1.5" fill="white" fillOpacity="0.7"/>
-              <rect x="6" y="11" width="4" height="3" rx="1.5" fill="white" fillOpacity="0.45"/>
-            </svg>
-          </div>
-          <div>
-            <span className="font-bold text-white text-base tracking-tight font-display">AutoHR</span>
+          {org.logoUrl ? (
+            <img src={org.logoUrl} alt={org.name} className="w-8 h-8 rounded-xl object-cover shrink-0 bg-white" />
+          ) : (
+            <div className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0" style={{ background: 'linear-gradient(135deg, #5B4CF5 0%, #8B5CF6 100%)' }}>
+              <svg width="16" height="14" viewBox="0 0 16 14" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <rect x="0" y="0" width="16" height="3" rx="1.5" fill="white" fillOpacity="0.95"/>
+                <rect x="3" y="5.5" width="10" height="3" rx="1.5" fill="white" fillOpacity="0.7"/>
+                <rect x="6" y="11" width="4" height="3" rx="1.5" fill="white" fillOpacity="0.45"/>
+              </svg>
+            </div>
+          )}
+          <div className="flex flex-col overflow-hidden">
+            <span className="font-bold text-white text-sm tracking-tight font-display truncate pr-2">
+              {org.name && org.name !== 'AutoHR Philippines Technologies Inc.' ? org.name : 'AutoHR'}
+            </span>
+            {org.name && org.name !== 'AutoHR Philippines Technologies Inc.' && (
+              <span className="text-[9px] text-slate-400 font-medium">powered by AutoHR</span>
+            )}
           </div>
         </div>
 

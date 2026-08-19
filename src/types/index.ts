@@ -37,6 +37,7 @@ export interface Organization {
   code: string;
   domain: string;
   logoUrl?: string;
+  address?: string;
   country: string; // "Philippines"
   countryCode: string; // "PH"
   timezone: string; // "Asia/Manila"

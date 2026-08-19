@@ -500,6 +500,27 @@ history.
 
 # 12. RBAC AND AUTHORIZATION
 
+## Core Role Hierarchy
+
+The AutoHR platform strictly adheres to a three-tier hierarchy for application access control:
+
+1. **Superuser (Owner / Company Creator)**
+   - Holds absolute administrative authority over the organization account.
+   - Can access and modify all app privileges, including app subscriptions and global app settings.
+   - Acts as an HR when necessary.
+   - The *only* role that can create other `HR_ADMIN` users and configure their specific access/privileges.
+
+2. **HR Administrator**
+   - Treated as a regular employee but with elevated privileges designed explicitly to manage other employees.
+   - Responsible for creating and managing standard employees.
+   - Has full access to process and finalize payroll, leave requests, and attendance.
+   - Can create other HR_ADMINs.
+   - **Cannot** modify organization subscriptions, settings, or elevate themselves/others to a Superuser role.
+
+3. **Regular Employee**
+   - General end-users restricted to specific job roles.
+   - Primarily use the self-service portal to submit leave requests, view their payslips, clock in/out, etc.
+
 Use layered authorization:
 
 ``` text
@@ -507,7 +528,7 @@ Authentication
       ↓
 Tenant Membership
       ↓
-Role
+Role (Superuser / HR / Employee)
       ↓
 Permission
       ↓

@@ -18,6 +18,7 @@ import { Tabs } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
 import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell } from '@/components/ui/table';
 
 export function AdminView() {
@@ -26,12 +27,23 @@ export function AdminView() {
   const [roles, setRoles] = useState<Role[]>([]);
   const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
   const [org, setOrg] = useState<Organization>(db.getOrganization());
+  const [profileData, setProfileData] = useState({
+    name: db.getOrganization().name,
+    logoUrl: db.getOrganization().logoUrl || '',
+    address: db.getOrganization().address || '',
+  });
 
   const loadData = () => {
     setUsers(db.getUsers());
     setRoles(db.getRoles());
     setAuditEvents(db.getAuditEvents());
-    setOrg(db.getOrganization());
+    const currentOrg = db.getOrganization();
+    setOrg(currentOrg);
+    setProfileData({
+      name: currentOrg.name,
+      logoUrl: currentOrg.logoUrl || '',
+      address: currentOrg.address || '',
+    });
   };
 
   useEffect(() => {
@@ -47,10 +59,31 @@ export function AdminView() {
     setOrg(db.getOrganization());
   };
 
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [profileSaved, setProfileSaved] = useState(false);
+
+  const handleProfileSave = () => {
+    setIsSavingProfile(true);
+    db.updateOrganizationProfile({
+      name: profileData.name,
+      logoUrl: profileData.logoUrl,
+      address: profileData.address,
+    });
+    setOrg(db.getOrganization());
+    
+    // Simulate network delay for better UX feedback
+    setTimeout(() => {
+      setIsSavingProfile(false);
+      setProfileSaved(true);
+      setTimeout(() => setProfileSaved(false), 3000);
+    }, 400);
+  };
+
   const tabs = [
     { id: 'audit', label: 'Tamper-Evident Audit Trail', count: auditEvents.length, icon: <History className="w-4 h-4" /> },
     { id: 'rbac', label: 'Roles & Granular Permissions', count: roles.length, icon: <ShieldCheck className="w-4 h-4" /> },
     { id: 'users', label: 'User Accounts', count: users.length, icon: <Users className="w-4 h-4" /> },
+    { id: 'profile', label: 'Company Profile', icon: <Building2 className="w-4 h-4" /> },
     { id: 'settings', label: 'Tenant Security Settings', icon: <Settings className="w-4 h-4" /> },
   ];
 
@@ -235,6 +268,46 @@ export function AdminView() {
               checked={org.settings.requireBiometrics}
               onChange={() => handleSettingToggle('requireBiometrics')}
             />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Tab 5: Company Profile */}
+      {activeTab === 'profile' && (
+        <Card className="animate-fade-in max-w-2xl">
+          <CardHeader>
+            <CardTitle className="text-base">Company Profile</CardTitle>
+            <CardDescription>Update your company's branding and physical address.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Input
+              label="Company Name"
+              value={profileData.name}
+              onChange={(e) => setProfileData({ ...profileData, name: e.target.value })}
+            />
+            <Input
+              label="Logo URL"
+              value={profileData.logoUrl}
+              onChange={(e) => setProfileData({ ...profileData, logoUrl: e.target.value })}
+              placeholder="https://example.com/logo.png"
+            />
+            <Input
+              label="Company Address"
+              value={profileData.address}
+              onChange={(e) => setProfileData({ ...profileData, address: e.target.value })}
+              placeholder="123 Corporate Ave, Metro Manila"
+            />
+            <div className="pt-4 flex justify-end items-center gap-3">
+              {profileSaved && (
+                <span className="text-sm font-medium text-emerald-600 flex items-center gap-1.5 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4" />
+                  Saved successfully!
+                </span>
+              )}
+              <Button onClick={handleProfileSave} variant="primary" isLoading={isSavingProfile}>
+                Save Changes
+              </Button>
+            </div>
           </CardContent>
         </Card>
       )}
